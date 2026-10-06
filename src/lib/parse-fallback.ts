@@ -23,7 +23,7 @@ export function parseFallback(text: string): TaskDraft {
   } else {
     const m = lower.match(/\b(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/);
     if (m) {
-      const target = DAYS.indexOf(m[2]);
+      const target = DAYS.indexOf(m[2] ?? "");
       const d = new Date(now);
       let diff = (target - d.getDay() + 7) % 7;
       if (diff === 0 || m[1]) diff += diff === 0 ? 7 : 0;
@@ -34,7 +34,7 @@ export function parseFallback(text: string): TaskDraft {
 
   const tm = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/) || lower.match(/\bat\s+(\d{1,2}):(\d{2})\b/);
   if (tm) {
-    let h = parseInt(tm[1], 10);
+    let h = parseInt(tm[1] ?? "0", 10);
     const min = tm[2] ? parseInt(tm[2], 10) : 0;
     const ap = tm[3]?.replace(/\./g, "");
     if (ap === "pm" && h < 12) h += 12;
@@ -59,6 +59,6 @@ export function parseFallback(text: string): TaskDraft {
     .replace(/[.,!\s]+$/, "")
     .trim();
 
-  const title = s ? s[0].toUpperCase() + s.slice(1) : text.trim();
+  const title = s ? s.charAt(0).toUpperCase() + s.slice(1) : text.trim();
   return { title, date, time, priority };
 }

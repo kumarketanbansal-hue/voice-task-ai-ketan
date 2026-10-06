@@ -81,7 +81,7 @@ export function formatDue(task: TaskDraft) {
   if (task.time && isValidTime(task.time)) {
     const [h, m] = task.time.split(":").map(Number);
     const t = new Date();
-    t.setHours(h, m);
+    t.setHours(h ?? 0, m ?? 0);
     out += (out ? " · " : "") + t.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   }
   return out || "No due date";
