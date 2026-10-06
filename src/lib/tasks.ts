@@ -13,6 +13,7 @@ export interface Task extends TaskDraft {
   id: string;
   completed: boolean;
   createdAt: number;
+  notified?: boolean;
 }
 
 const KEY = "voice-task-ai:tasks";
@@ -48,7 +49,11 @@ export function useTasks() {
     setTasks((t) => t.filter((x) => x.id !== id));
   }, []);
 
-  return { tasks, add, toggle, remove };
+  const markNotified = useCallback((id: string) => {
+    setTasks((t) => t.map((x) => (x.id === id ? { ...x, notified: true } : x)));
+  }, []);
+
+  return { tasks, add, toggle, remove, markNotified };
 }
 
 export function isValidDate(d: string) {
@@ -101,4 +106,11 @@ export function localToday() {
 export function toISO(d: Date) {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Due moment; tasks with a date but no time ring at 09:00. */
+export function dueAt(task: TaskDraft): Date | null {
+  if (!task.date || !isValidDate(task.date)) return null;
+  const d = new Date(`${task.date}T${task.time && isValidTime(task.time) ? task.time : "09:00"}:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
