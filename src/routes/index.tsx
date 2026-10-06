@@ -1,24 +1,163 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { Loader2, Send, AudioLines } from "lucide-react";
+import { MicButton } from "@/components/MicButton";
+import { ConfirmCard } from "@/components/ConfirmCard";
+import { TaskList } from "@/components/TaskList";
+import { useSpeech } from "@/hooks/use-speech";
+import { extractTask } from "@/lib/extract.functions";
+import { parseFallback } from "@/lib/parse-fallback";
+import { isValidDate, isValidTime, localToday, useTasks, type TaskDraft } from "@/lib/tasks";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Voice Task AI — Voice-to-Action Assistant" },
+      { name: "description", content: "Speak naturally and turn your voice into organized tasks with dates, times and priorities." },
+      { property: "og:title", content: "Voice Task AI — Voice-to-Action Assistant" },
+      { property: "og:description", content: "Speak naturally and turn your voice into organized tasks." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
+
 function Index() {
+  const { tasks, add, toggle, remove } = useTasks();
+  const extract = useServerFn(extractTask);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [pending, setPending] = useState<{ draft: TaskDraft; transcript: string; source: "ai" | "fallback" } | null>(null);
+
+  const process = async (input: string) => {
+    const t = input.trim();
+    setNotice("");
+    if (!t) return setNotice("Please say or type a task first.");
+    setBusy(true);
+    let draft: TaskDraft;
+    let source: "ai" | "fallback" = "ai";
+    try {
+      const now = new Date();
+      draft = await extract({
+        data: { text: t, today: localToday(), weekday: now.toLocaleDateString("en-US", { weekday: "long" }) },
+      });
+      if (!draft.title.trim()) throw new Error("empty");
+    } catch {
+      draft = parseFallback(t);
+      source = "fallback";
+    }
+    if (!isValidDate(draft.date)) draft.date = "";
+    if (!isValidTime(draft.time)) draft.time = "";
+    setPending({ draft, transcript: t, source });
+    setText("");
+    setBusy(false);
+  };
+
+  const speech = useSpeech((final) => {
+    setText(final);
+    process(final);
+  });
+  const listening = speech.status === "listening";
+
+  const { open, done } = useMemo(() => {
+    const sortKey = (x: (typeof tasks)[number]) => `${x.date || "9999"}${x.time || "99"}`;
+    return {
+      open: tasks
+        .filter((t) => !t.completed)
+        .sort((a, b) => sortKey(a).localeCompare(sortKey(b)) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]),
+      done: tasks.filter((t) => t.completed),
+    };
+  }, [tasks]);
+
+  const statusText =
+    speech.status === "denied"
+      ? "Microphone access was blocked. Allow it in your browser settings, or type below."
+      : speech.status === "unsupported"
+        ? "Voice input isn't supported in this browser. Type your task below."
+        : speech.status === "error"
+          ? "Couldn't hear you. Try again or type below."
+          : listening
+            ? "Listening… speak naturally"
+            : busy
+              ? "Understanding your task…"
+              : "Tap the mic and say something like “Remind me tomorrow at 5 pm to submit my assignment”";
+
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="app-bg min-h-screen">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:py-12">
+        <header className="mb-8 flex items-center gap-3">
+          <div className="mic-btn grid h-10 w-10 place-items-center rounded-xl text-primary-foreground">
+            <AudioLines className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">Voice Task AI</h1>
+            <p className="text-xs text-muted-foreground">Voice-to-Action Assistant</p>
+          </div>
+          <div className="ml-auto text-right text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">{open.length}</span> pending ·{" "}
+            <span className="font-semibold text-foreground">{done.length}</span> done
+          </div>
+        </header>
+
+        <div className="grid gap-8 lg:grid-cols-[1fr_1.1fr]">
+          <div className="space-y-5 lg:sticky lg:top-8 lg:self-start">
+            <div className="card-surface flex flex-col items-center px-6 py-10 text-center">
+              <MicButton
+                listening={listening}
+                disabled={busy || speech.status === "unsupported"}
+                onClick={() => (listening ? speech.stop() : speech.start())}
+              />
+              <p className={`mt-8 min-h-10 max-w-sm text-sm ${speech.status === "denied" || speech.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+                {busy && <Loader2 className="mr-1.5 inline h-4 w-4 animate-spin" />}
+                {statusText}
+              </p>
+              {listening && speech.interim && <p className="mt-3 text-base font-medium">{speech.interim}</p>}
+
+              <form
+                className="mt-6 flex w-full gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  process(text);
+                }}
+              >
+                <input
+                  className="field flex-1"
+                  placeholder="Or type a task…"
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  disabled={busy}
+                />
+                <button type="submit" disabled={busy} className="btn-primary px-4" aria-label="Create from text">
+                  <Send className="h-4 w-4" />
+                </button>
+              </form>
+              {notice && <p className="mt-2 text-xs text-destructive">{notice}</p>}
+            </div>
+
+            {pending && (
+              <ConfirmCard
+                key={pending.transcript + pending.draft.title}
+                {...pending}
+                onConfirm={(d) => {
+                  add(d);
+                  setPending(null);
+                }}
+                onCancel={() => setPending(null)}
+              />
+            )}
+          </div>
+
+          <div className="space-y-8">
+            <TaskList title="Pending" tasks={open} empty="No pending tasks. Speak one into existence." onToggle={toggle} onDelete={remove} />
+            <TaskList title="Completed" tasks={done} empty="Completed tasks will appear here." onToggle={toggle} onDelete={remove} />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
