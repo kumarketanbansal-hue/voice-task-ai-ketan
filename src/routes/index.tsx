@@ -88,7 +88,7 @@ function Index() {
         : speech.status === "error"
           ? "Couldn't hear you. Try again or type below."
           : listening
-            ? "Listening… keep speaking, then tap the stop button when you’re finished"
+            ? "Listening… I’ll stop after two seconds of silence"
             : busy
               ? "Understanding your task…"
               : "Tap the mic and say something like “Remind me tomorrow at 5 pm to submit my assignment”";

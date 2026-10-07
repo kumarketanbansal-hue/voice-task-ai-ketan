@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Status = "idle" | "listening" | "unsupported" | "denied" | "error";
+const SILENCE_MS = 2_000;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function useSpeech(onFinal: (text: string) => void) {
@@ -9,12 +10,21 @@ export function useSpeech(onFinal: (text: string) => void) {
   const recRef = useRef<any>(null);
   const finalRef = useRef("");
   const interimRef = useRef("");
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cbRef = useRef(onFinal);
   cbRef.current = onFinal;
 
   useEffect(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) setStatus("unsupported");
+    return () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      try {
+        recRef.current?.abort();
+      } catch {
+        /* recognition may already be stopped */
+      }
+    };
   }, []);
 
   const start = useCallback(() => {
@@ -27,6 +37,16 @@ export function useSpeech(onFinal: (text: string) => void) {
     finalRef.current = "";
     interimRef.current = "";
     setInterim("");
+    const stopAfterSilence = () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => {
+        try {
+          rec.stop();
+        } catch {
+          /* recognition may already be stopped */
+        }
+      }, SILENCE_MS);
+    };
     rec.onresult = (e: any) => {
       let inter = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -36,6 +56,7 @@ export function useSpeech(onFinal: (text: string) => void) {
       }
       interimRef.current = inter;
       setInterim(`${finalRef.current}${inter}`.trim());
+      stopAfterSilence();
     };
     rec.onerror = (e: any) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") setStatus("denied");
@@ -43,6 +64,8 @@ export function useSpeech(onFinal: (text: string) => void) {
       else setStatus("error");
     };
     rec.onend = () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
       setStatus((s) => (s === "listening" ? "idle" : s));
       const text = `${finalRef.current}${interimRef.current}`.trim();
       recRef.current = null;
@@ -52,6 +75,7 @@ export function useSpeech(onFinal: (text: string) => void) {
     try {
       rec.start();
       setStatus("listening");
+      stopAfterSilence();
     } catch {
       setStatus("error");
     }
@@ -60,6 +84,7 @@ export function useSpeech(onFinal: (text: string) => void) {
   const stop = useCallback(() => {
     const rec = recRef.current;
     if (!rec) return;
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     try {
       rec.stop();
     } catch {
