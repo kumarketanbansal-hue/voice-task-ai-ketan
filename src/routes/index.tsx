@@ -1,10 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Send, AudioLines } from "lucide-react";
+import { Bell, BellOff, CalendarDays, List, Loader2, Send, AudioLines } from "lucide-react";
 import { MicButton } from "@/components/MicButton";
 import { ConfirmCard } from "@/components/ConfirmCard";
 import { TaskList } from "@/components/TaskList";
+import { CalendarView } from "@/components/CalendarView";
+import { AlarmBanner } from "@/components/AlarmBanner";
+import { useAlarms } from "@/hooks/use-alarms";
 import { useSpeech } from "@/hooks/use-speech";
 import { extractTask } from "@/lib/extract.functions";
 import { parseFallback } from "@/lib/parse-fallback";
@@ -27,12 +30,15 @@ export const Route = createFileRoute("/")({
 const PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
 
 function Index() {
-  const { tasks, add, toggle, remove } = useTasks();
+  const { tasks, add, toggle, remove, markNotified } = useTasks();
   const extract = useServerFn(extractTask);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [view, setView] = useState<"list" | "calendar">("list");
+  const [alarmsEnabled, setAlarmsEnabled] = useState(false);
   const [pending, setPending] = useState<{ draft: TaskDraft; transcript: string; source: "ai" | "fallback" } | null>(null);
+  const alarms = useAlarms(tasks, markNotified, alarmsEnabled);
 
   const process = async (input: string) => {
     const t = input.trim();
@@ -89,8 +95,16 @@ function Index() {
 
   return (
     <div className="app-bg min-h-screen">
+      <AlarmBanner
+        tasks={alarms.ringing}
+        onDone={(id) => {
+          toggle(id);
+          alarms.dismiss(id);
+        }}
+        onDismiss={alarms.dismiss}
+      />
       <div className="mx-auto max-w-5xl px-4 py-8 sm:py-12">
-        <header className="mb-8 flex items-center gap-3">
+        <header className="mb-6 flex items-center gap-3">
           <div className="mic-btn grid h-10 w-10 place-items-center rounded-xl text-primary-foreground">
             <AudioLines className="h-5 w-5" />
           </div>
@@ -103,6 +117,44 @@ function Index() {
             <span className="font-semibold text-foreground">{done.length}</span> done
           </div>
         </header>
+
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-3 border-y border-border py-3">
+          <div className="flex rounded-lg bg-muted p-1" role="group" aria-label="Task view">
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              aria-pressed={view === "list"}
+              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${view === "list" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <List className="h-4 w-4" /> List
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("calendar")}
+              aria-pressed={view === "calendar"}
+              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${view === "calendar" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <CalendarDays className="h-4 w-4" /> Calendar
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={async () => {
+              setAlarmsEnabled(true);
+              await alarms.requestPermission();
+            }}
+            disabled={alarmsEnabled}
+            className={alarmsEnabled ? "btn-ghost" : "btn-primary"}
+          >
+            {alarmsEnabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+            {alarmsEnabled
+              ? alarms.perm === "granted"
+                ? "Alarms enabled"
+                : "In-app alarms enabled"
+              : "Enable alarms"}
+          </button>
+        </div>
 
         <div className="grid gap-8 lg:grid-cols-[1fr_1.1fr]">
           <div className="space-y-5 lg:sticky lg:top-8 lg:self-start">
@@ -152,10 +204,14 @@ function Index() {
             )}
           </div>
 
-          <div className="space-y-8">
-            <TaskList title="Pending" tasks={open} empty="No pending tasks. Speak one into existence." onToggle={toggle} onDelete={remove} />
-            <TaskList title="Completed" tasks={done} empty="Completed tasks will appear here." onToggle={toggle} onDelete={remove} />
-          </div>
+          {view === "list" ? (
+            <div className="space-y-8">
+              <TaskList title="Pending" tasks={open} empty="No pending tasks. Speak one into existence." onToggle={toggle} onDelete={remove} />
+              <TaskList title="Completed" tasks={done} empty="Completed tasks will appear here." onToggle={toggle} onDelete={remove} />
+            </div>
+          ) : (
+            <CalendarView tasks={tasks} onToggle={toggle} onDelete={remove} />
+          )}
         </div>
       </div>
     </div>
