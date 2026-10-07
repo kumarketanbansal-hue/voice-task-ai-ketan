@@ -8,3 +8,5 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Keep task persistence and open-tab alarm scheduling client-side because this MVP intentionally stores tasks in browser local storage.

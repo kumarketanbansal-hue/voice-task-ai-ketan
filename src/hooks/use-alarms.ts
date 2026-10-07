@@ -20,7 +20,7 @@ function beep(ctx: AudioContext) {
 }
 
 /** Rings for pending tasks whose due time has arrived while the app is open. */
-export function useAlarms(tasks: Task[], markNotified: (id: string) => void) {
+export function useAlarms(tasks: Task[], markNotified: (id: string) => void, enabled: boolean) {
   const [ringing, setRinging] = useState<Task[]>([]);
   const [perm, setPerm] = useState<Perm>("default");
   const ctxRef = useRef<AudioContext | null>(null);
@@ -38,14 +38,18 @@ export function useAlarms(tasks: Task[], markNotified: (id: string) => void) {
 
   const requestPermission = useCallback(async () => {
     if (!ctxRef.current) ctxRef.current = new AudioContext();
-    ctxRef.current.resume();
-    if (typeof Notification === "undefined") return;
+    await ctxRef.current.resume();
+    if (typeof Notification === "undefined") {
+      setPerm("unsupported");
+      return;
+    }
     setPerm((await Notification.requestPermission()) as Perm);
   }, []);
 
   // Check due tasks every 10s.
   useEffect(() => {
     const check = () => {
+      if (!enabled) return;
       const now = Date.now();
       const due = tasks.filter((t) => {
         const d = dueAt(t);
@@ -68,7 +72,7 @@ export function useAlarms(tasks: Task[], markNotified: (id: string) => void) {
     check();
     const id = setInterval(check, 10_000);
     return () => clearInterval(id);
-  }, [tasks, markNotified]);
+  }, [tasks, markNotified, enabled]);
 
   // Repeat sound while something is ringing.
   useEffect(() => {
