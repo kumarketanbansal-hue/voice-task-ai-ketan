@@ -8,6 +8,7 @@ export function useSpeech(onFinal: (text: string) => void) {
   const [interim, setInterim] = useState("");
   const recRef = useRef<any>(null);
   const finalRef = useRef("");
+  const interimRef = useRef("");
   const cbRef = useRef(onFinal);
   cbRef.current = onFinal;
 
@@ -20,21 +21,21 @@ export function useSpeech(onFinal: (text: string) => void) {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return setStatus("unsupported");
     const rec = new SR();
-    rec.lang = "en-US";
+    rec.lang = navigator.language || "en-US";
     rec.interimResults = true;
-    rec.continuous = false;
+    rec.continuous = true;
     finalRef.current = "";
+    interimRef.current = "";
     setInterim("");
     rec.onresult = (e: any) => {
-      let fin = "";
       let inter = "";
-      for (let i = 0; i < e.results.length; i++) {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
-        if (r.isFinal) fin += r[0].transcript;
+        if (r.isFinal) finalRef.current += `${r[0].transcript} `;
         else inter += r[0].transcript;
       }
-      finalRef.current = fin;
-      setInterim(fin + inter);
+      interimRef.current = inter;
+      setInterim(`${finalRef.current}${inter}`.trim());
     };
     rec.onerror = (e: any) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") setStatus("denied");
@@ -43,7 +44,8 @@ export function useSpeech(onFinal: (text: string) => void) {
     };
     rec.onend = () => {
       setStatus((s) => (s === "listening" ? "idle" : s));
-      const text = finalRef.current.trim();
+      const text = `${finalRef.current}${interimRef.current}`.trim();
+      recRef.current = null;
       if (text) cbRef.current(text);
     };
     recRef.current = rec;
@@ -55,7 +57,15 @@ export function useSpeech(onFinal: (text: string) => void) {
     }
   }, []);
 
-  const stop = useCallback(() => recRef.current?.stop(), []);
+  const stop = useCallback(() => {
+    const rec = recRef.current;
+    if (!rec) return;
+    try {
+      rec.stop();
+    } catch {
+      setStatus("idle");
+    }
+  }, []);
 
   return { status, interim, start, stop, setStatus };
 }
